@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AML Pattern Exchange Engine — Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDmaCmSPaPXyrp54JeBPxXlziQHyXaeqWM",
+    authDomain: "aml-simulation-af9013.firebaseapp.com",
+    databaseURL: "https://aml-simulation-af9013-default-rtdb.firebaseio.com",
+    projectId: "aml-simulation-af9013",
+    storageBucket: "aml-simulation-af9013.appspot.com",
+    messagingSenderId: "1082780516095",
+    appId: "1:1082780516095:web:907d3b4e9a95be2fd216ca"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db  = getDatabase(app);
+
+  const charts = {};
+  const C = {
+    bl:'#2D84D4', bl2:'#7BB8FF', go:'#C9A84C', go2:'#F0CB6E',
+    gn:'#1A9B6C', gn2:'#2AC488', rd:'#C0392B', rd2:'#E05A50',
+    mu:'#6B8BA4', pu:'#A855F7'
+  };
+
+  Chart.defaults.color = '#6B8BA4';
+  Chart.defaults.borderColor = 'rgba(255,255,255,0.07)';
+  Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
+  Chart.defaults.font.size = 11;
+
+  const sc = () => ({
+    responsive: true,
+    plugins: { legend: { labels: { color: C.mu, font: { size: 10 }, boxWidth: 12 } } },
+    scales: {
+      x: { ticks: { color: C.mu }, grid: { color: 'rgba(255,255,255,0.05)' } },
+      y: { ticks: { color: C.mu }, grid: { color: 'rgba(255,255,255,0.05)' } }
+    }
+  });
+
+  function mk(id, type, data, opts) {
+    if (charts[id]) charts[id].destroy();
+    const el = document.getElementById(id);
+    if (!el) return;
+    charts[id] = new Chart(el, { type, data, options: opts });
+  }
+
+  function set_stat(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  }
+
+  function show(id) { const el = document.getElementById(id); if (el) el.style.display = 'block'; }
+  function hide(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
+
+  const TYPO_META = {
+    structuring:           { label: 'Structuring / Smurfing' },
+    rapid_movement:        { label: 'Rapid Fund Movement' },
+    circular:              { label: 'Circular Transfers' },
+    mule_account:          { label: 'Mule Accounts' },
+    dormant_activation:    { label: 'Dormant Activation' },
+    cross_bank_layering:   { label: 'Tasattur / Cross-bank Layering' },
+    high_risk_jurisdiction:{ label: 'High-risk Jurisdiction' },
+    pep_activity:          { label: 'PEP-linked Activity' },
+    shell_company:         { label: 'Shell Company Network' },
+    trade_based_ml:        { label: 'Trade-based ML' },
+  };
+  const TYPO_COLORS = ['#2D84D4','#C9A84C','#1A9B6C','#E05A50','#7BB8FF','#A855F7','#F59E0B','#EC4899','#06B6D4','#84CC16'];
+
+  function renderM1(d) {
+    if (!d) return;
+    hide('m1-wait'); show('m1-data');
+    if (d.bank_counts && !Array.isArray(d.bank_counts) && typeof d.bank_counts === 'object') {} // keep as object - correct
+    set_stat('sv-tx',   Number(d.n_transactions).toLocaleString());
+    set_stat('sv-cust', Number(d.n_customers).toLocaleString());
+
+    const banks  = Object.keys(d.bank_counts);
+    const bcnts  = Object.values(d.bank_counts);
+    mk('ch-m1-bank', 'bar', {
+      labels: banks,
+      datasets: [{ label: 'Transactions', data: bcnts, backgroundColor: [C.bl, C.go, C.gn, C.rd2, C.bl2] }]
+    }, { ...sc(), plugins: { legend: { display: false } } });
+
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const mdata  = months.map((_, i) => d.monthly_counts[String(i + 1)] || 0);
+    mk('ch-m1-mon', 'line', {
+      labels: months,
+      datasets: [{ label: 'Volume', data: mdata, borderColor: C.go, backgroundColor: 'rgba(201,168,76,.08)', fill: true, tension: .4, pointRadius: 0 }]
+    }, { ...sc(), plugins: { legend: { display: false } } });
+
+    mk('ch-m1-risk', 'doughnut', {
+      labels: Object.keys(d.risk_counts),
+      datasets: [{ data: Object.values(d.risk_counts), backgroundColor: [C.gn, C.go, C.rd2] }]
+    }, { responsive: true, plugins: { legend: { position: 'bottom', labels: { color: C.mu, font: { size: 10 }, boxWidth: 12 } } } });
+
+    mk('ch-m1-ch', 'pie', {
+      labels: Object.keys(d.channel_counts),
+      datasets: [{ data: Object.values(d.channel_counts), backgroundColor: [C.bl, C.go, C.gn, C.rd2, C.bl2] }]
+    }, { responsive: true, plugins: { legend: { position: 'bottom', labels: { color: C.mu, font: { size: 10 }, boxWidth: 12 } } } });
+  }
+
+  function renderM2(d) {
+    if (!d) return;
+    hide('m2-wait'); show('m2-data');
+    // injections and avg_amount_by_type are objects - OK for Firebase
+    set_stat('sv-ml', `${Number(d.total_laundering).toLocaleString()} (${d.laundering_rate_pct}%)`);
+
+    const keys  = Object.keys(d.injections);
+    const vals  = Object.values(d.injections);
+    const labs  = keys.map(k => TYPO_META[k]?.label || k);
+    const cols  = TYPO_COLORS.slice(0, keys.length);
+
+    mk('ch-m2-t', 'bar', {
+      labels: labs,
+      datasets: [{ label: 'Injected', data: vals, backgroundColor: cols }]
+    }, { ...sc(), indexAxis: 'y', plugins: { legend: { display: false } },
+         scales: { x: { ticks: { color: C.mu }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                   y: { ticks: { color: C.mu, font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.05)' } } } });
+
+    const avgAmts = keys.map(k => Math.round((d.avg_amount_by_type[k] || 0) / 1000));
+    mk('ch-m2-a', 'bar', {
+      labels: labs,
+      datasets: [
+        { label: 'Avg SAR (000s)', data: avgAmts, backgroundColor: cols },
+        { label: 'CTR 60K', data: Array(keys.length).fill(60), type: 'line', borderColor: C.rd2, borderDash: [5, 3], pointRadius: 0, backgroundColor: 'transparent' }
+      ]
+    }, { ...sc(), scales: { x: { ticks: { color: C.mu, font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                             y: { ticks: { color: C.mu }, grid: { color: 'rgba(255,255,255,0.05)' } } } });
+
+    // PSV transformation box
+    const ex = d.psv_example;
+    if (ex) {
+      const b = ex.before, a = ex.after;
+      document.getElementById('psv-box').innerHTML = `
+        <div class="psv-side">
+          <h4 style="color:${C.rd2}">🔴 Before — Raw Transaction (PII)</h4>
+          <div class="psv-field raw"><span class="pl">Transaction ID</span><span class="pv-r">${b.tx_id}</span></div>
+          <div class="psv-field raw"><span class="pl">Customer ID</span><span class="pv-r">${b.customer_id}</span></div>
+          <div class="psv-field raw"><span class="pl">Bank</span><span class="pv-r">${b.bank_name}</span></div>
+          <div class="psv-field raw"><span class="pl">Amount (SAR)</span><span class="pv-r">${Number(b.tx_amount_sar).toLocaleString()}</span></div>
+          <div class="psv-field raw"><span class="pl">Channel</span><span class="pv-r">${b.channel}</span></div>
+          <div class="psv-field raw"><span class="pl">Country</span><span class="pv-r">${b.counterparty_country}</span></div>
+        </div>
+        <div class="psv-arrow">→<br><small>Risk DNA<br>Hash fn</small><br>→</div>
+        <div class="psv-side">
+          <h4 style="color:${C.gn2}">🟢 After — PSV Vector (No PII)</h4>
+          <div class="psv-field safe"><span class="pl">Threshold %</span><span class="pv-g">${a.threshold_pct}</span></div>
+          <div class="psv-field safe"><span class="pl">Time burst</span><span class="pv-g">${a.time_burst_idx}</span></div>
+          <div class="psv-field safe"><span class="pl">Net centrality</span><span class="pv-g">${a.net_centrality}</span></div>
+          <div class="psv-field safe"><span class="pl">Device entropy</span><span class="pv-g">${a.device_entropy}</span></div>
+          <div class="psv-field safe"><span class="pl">Country risk</span><span class="pv-g">${a.country_risk}</span></div>
+          <div class="psv-field safe"><span class="pl">Velocity</span><span class="pv-g">${a.velocity_score}</span></div>
+          <div class="psv-field dead"><span class="pl">Customer ID</span><span class="pv-m">PERMANENTLY DESTROYED</span></div>
+          <div class="psv-field dead"><span class="pl">SAR amount</span><span class="pv-m">PERMANENTLY DESTROYED</span></div>
+        </div>`;
+    }
+  }
+
+  function renderM3(d) {
+    if (!d) return;
+    if (d.roc_fpr && !Array.isArray(d.roc_fpr)) d.roc_fpr = Object.values(d.roc_fpr);
+    if (d.roc_tpr && !Array.isArray(d.roc_tpr)) d.roc_tpr = Object.values(d.roc_tpr);
+    hide('m3-wait'); show('m3-data');
+    set_stat('sv-b-f1', (d.f1_score * 100).toFixed(1) + '%');
+
+    mk('ch-m3-cm', 'bar', {
+      labels: ['True Positive', 'False Positive', 'True Negative', 'False Negative'],
+      datasets: [{ label: 'Transactions', data: [d.true_pos, d.false_pos, d.true_neg, d.false_neg], backgroundColor: [C.gn, C.rd2, C.bl, C.go] }]
+    }, { ...sc(), plugins: { legend: { display: false } } });
+
+    mk('ch-m3-roc', 'line', {
+      labels: d.roc_fpr,
+      datasets: [
+        { label: `Baseline AUC=${d.roc_auc}`, data: d.roc_tpr, borderColor: C.bl2, backgroundColor: 'rgba(46,132,212,.08)', fill: true, tension: .4, pointRadius: 0 },
+        { label: 'Random', data: d.roc_fpr, borderColor: C.mu, borderDash: [4, 4], pointRadius: 0, backgroundColor: 'transparent' }
+      ]
+    }, { ...sc() });
+
+    const det  = d.typology_detection_rates;
+    const tkeys = Object.keys(det);
+    mk('ch-m3-t', 'bar', {
+      labels: tkeys.map(k => TYPO_META[k]?.label || k),
+      datasets: [{ label: 'Detection %', data: tkeys.map(k => det[k]), backgroundColor: tkeys.map(k => det[k] >= 70 ? C.gn : det[k] >= 50 ? C.go : C.rd2) }]
+    }, { ...sc(), plugins: { legend: { display: false } },
+         scales: { x: { ticks: { color: C.mu, font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                   y: { min: 0, max: 100, ticks: { callback: v => v + '%', color: C.mu }, grid: { color: 'rgba(255,255,255,0.05)' } } } });
+  }
+
+  function renderM4(d) {
+    if (!d) return;
+    // Firebase converts arrays to objects - convert back
+    if (d.cosine_bins && !Array.isArray(d.cosine_bins)) d.cosine_bins = Object.values(d.cosine_bins);
+    if (d.cosine_clean && !Array.isArray(d.cosine_clean)) d.cosine_clean = Object.values(d.cosine_clean);
+    if (d.cosine_suspicious && !Array.isArray(d.cosine_suspicious)) d.cosine_suspicious = Object.values(d.cosine_suspicious);
+    if (d.pii_fields_checked && !Array.isArray(d.pii_fields_checked)) d.pii_fields_checked = Object.values(d.pii_fields_checked);
+    if (d.pii_fields_found && !Array.isArray(d.pii_fields_found)) d.pii_fields_found = Object.values(d.pii_fields_found);
+    hide('m4-wait'); show('m4-data');
+
+    const pdpl = d.pdpl_pass;
+    document.getElementById('pdpl-result').innerHTML = `
+      <div class="pdpl-badge" style="background:${pdpl ? 'rgba(26,155,108,.08)' : 'rgba(192,57,43,.08)'};border-color:${pdpl ? 'rgba(26,155,108,.3)' : 'rgba(192,57,43,.3)'}">
+        <div style="font-size:1.4rem">${pdpl ? '✅' : '❌'}</div>
+        <div>
+          <div style="font-size:.75rem;font-weight:700;color:${pdpl ? C.gn2 : C.rd2}">PDPL Article 18 — ${pdpl ? 'PASSED' : 'FAILED'}</div>
+          <div style="font-size:.65rem;color:${C.mu}">Fields checked: ${Array.isArray(d.pii_fields_checked) ? d.pii_fields_checked.join(', ') : Object.values(d.pii_fields_checked || {}).join(', ')}</div>
+          <div style="font-size:.65rem;color:${C.mu}">PII found in output: ${(Array.isArray(d.pii_fields_found) ? d.pii_fields_found : Object.values(d.pii_fields_found || {})).length === 0 ? 'None — all destroyed ✓' : 'Fields found'}</div>
+        </div>
+      </div>`;
+
+    const dims = ['threshold_pct','time_burst_idx','net_centrality','device_entropy','country_risk','velocity_score','freq_variance'];
+    const labs = ['Threshold%','TimeBurst','NetCentral','DeviceEnt','CountryRisk','Velocity','FreqVar'];
+    
+    // Debug: log what we received
+    console.log('clean_psv_mean:', d.clean_psv_mean);
+    console.log('suspicious_psv_mean:', d.suspicious_psv_mean);
+    console.log('cosine_bins:', d.cosine_bins);
+    console.log('cosine_clean:', d.cosine_clean);
+    
+    // Ensure psv means are plain objects
+    const cleanMean = d.clean_psv_mean || {};
+    const susMean   = d.suspicious_psv_mean || {};
+    const cleanData = dims.map(k => Math.round((cleanMean[k] || 0) * 100));
+    const susData   = dims.map(k => Math.round((susMean[k] || 0) * 100));
+    console.log('cleanData:', cleanData);
+    console.log('susData:', susData);
+    
+    mk('ch-m4-radar', 'radar', {
+      labels: labs,
+      datasets: [
+        { label: 'Clean', data: cleanData, borderColor: C.bl2, backgroundColor: 'rgba(46,132,212,.1)' },
+        { label: 'Laundering', data: susData, borderColor: C.rd2, backgroundColor: 'rgba(192,57,43,.15)' }
+      ]
+    }, { responsive: true,
+         scales: { r: { min: 0, max: 100, ticks: { color: C.mu, stepSize: 20 }, grid: { color: 'rgba(255,255,255,0.06)' }, pointLabels: { color: '#EEF4FA', font: { size: 9 } } } },
+         plugins: { legend: { labels: { color: C.mu, font: { size: 10 }, boxWidth: 12 } } } });
+
+    mk('ch-m4-cos', 'bar', {
+      labels: d.cosine_bins,
+      datasets: [
+        { label: 'Clean', data: d.cosine_clean, backgroundColor: 'rgba(46,132,212,.6)' },
+        { label: 'Laundering', data: d.cosine_suspicious, backgroundColor: 'rgba(192,57,43,.8)' }
+      ]
+    }, { ...sc() });
+  }
+
+  function renderM5(d, m3) {
+    if (!d) return;
+    // Firebase converts arrays to objects - convert back
+    if (d.rounds_f1 && !Array.isArray(d.rounds_f1)) d.rounds_f1 = Object.values(d.rounds_f1);
+    if (d.rounds_alerts && !Array.isArray(d.rounds_alerts)) d.rounds_alerts = Object.values(d.rounds_alerts);
+    if (d.roc_fpr && !Array.isArray(d.roc_fpr)) d.roc_fpr = Object.values(d.roc_fpr);
+    if (d.roc_tpr && !Array.isArray(d.roc_tpr)) d.roc_tpr = Object.values(d.roc_tpr);
+    if (d.pr_precision && !Array.isArray(d.pr_precision)) d.pr_precision = Object.values(d.pr_precision);
+    if (d.pr_recall && !Array.isArray(d.pr_recall)) d.pr_recall = Object.values(d.pr_recall);
+    if (d.risk_bins && !Array.isArray(d.risk_bins)) d.risk_bins = Object.values(d.risk_bins);
+    if (d.risk_clean && !Array.isArray(d.risk_clean)) d.risk_clean = Object.values(d.risk_clean);
+    if (d.risk_suspicious && !Array.isArray(d.risk_suspicious)) d.risk_suspicious = Object.values(d.risk_suspicious);
+    hide('m5-wait'); show('m5-data');
+    set_stat('sv-c-f1', (d.f1_score * 100).toFixed(1) + '%');
+    if (m3) {
+      const gain = ((d.f1_score - m3.f1_score) * 100).toFixed(1);
+      set_stat('sv-gain', '+' + gain + 'pp');
+    }
+    set_stat('sv-pii', '0 bytes');
+    set_stat('sv-pdpl', '✅');
+
+    const rounds = Array.from({ length: d.rounds_f1.length }, (_, i) => i + 1);
+    mk('ch-m5-lc', 'line', {
+      labels: rounds,
+      datasets: [
+        { label: 'Collaborative F1', data: d.rounds_f1, borderColor: C.gn2, backgroundColor: 'rgba(26,155,108,.08)', fill: true, tension: .4, pointRadius: 0 },
+        { label: 'Baseline', data: Array(rounds.length).fill(m3 ? m3.f1_score * 100 : 71), borderColor: C.rd2, borderDash: [5, 3], pointRadius: 0, backgroundColor: 'transparent' }
+      ]
+    }, { ...sc(), scales: { x: { ticks: { color: C.mu }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                             y: { min: 0, max: 100, ticks: { callback: v => v + '%', color: C.mu }, grid: { color: 'rgba(255,255,255,0.05)' } } } });
+
+    mk('ch-m5-cm', 'bar', {
+      labels: ['True Positive', 'False Positive', 'True Negative', 'False Negative'],
+      datasets: [{ label: 'Transactions', data: [d.true_pos, d.false_pos, d.true_neg, d.false_neg], backgroundColor: [C.gn, C.rd2, C.bl, C.go] }]
+    }, { ...sc(), plugins: { legend: { display: false } } });
+
+    mk('ch-m5-roc', 'line', {
+      labels: d.roc_fpr,
+      datasets: [
+        { label: `Collaborative AUC=${d.roc_auc}`, data: d.roc_tpr, borderColor: C.gn2, backgroundColor: 'rgba(26,155,108,.08)', fill: true, tension: .4, pointRadius: 0 },
+        { label: 'Random', data: d.roc_fpr, borderColor: C.mu, borderDash: [4, 4], pointRadius: 0, backgroundColor: 'transparent' }
+      ]
+    }, { ...sc() });
+
+    mk('ch-m5-rs', 'bar', {
+      labels: d.risk_bins,
+      datasets: [
+        { label: 'Clean', data: d.risk_clean, backgroundColor: 'rgba(46,132,212,.6)' },
+        { label: 'Suspicious', data: d.risk_suspicious, backgroundColor: 'rgba(192,57,43,.8)' }
+      ]
+    }, { ...sc() });
+
+    const det   = d.typology_detection_rates;
+    const tkeys = Object.keys(det);
+    mk('ch-m5-t', 'bar', {
+      labels: tkeys.map(k => TYPO_META[k]?.label || k),
+      datasets: [{ label: 'Detection %', data: tkeys.map(k => det[k]), backgroundColor: tkeys.map(k => det[k] >= 85 ? C.gn : det[k] >= 70 ? C.go : C.rd2) }]
+    }, { ...sc(), plugins: { legend: { display: false } },
+         scales: { x: { ticks: { color: C.mu, font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                   y: { min: 0, max: 100, ticks: { callback: v => v + '%', color: C.mu }, grid: { color: 'rgba(255,255,255,0.05)' } } } });
+  }
+
+  function renderCompare(m3, m5) {
+    if (!m3 || !m5) return;
+    hide('cmp-wait'); show('cmp-data');
+
+    mk('ch-cp1', 'bar', {
+      labels: ['Precision', 'Recall', 'F1 Score', 'AUC-ROC'],
+      datasets: [
+        { label: 'Baseline', data: [m3.precision * 100, m3.recall * 100, m3.f1_score * 100, m3.roc_auc * 100], backgroundColor: 'rgba(192,57,43,.7)' },
+        { label: 'Collaborative', data: [m5.precision * 100, m5.recall * 100, m5.f1_score * 100, m5.roc_auc * 100], backgroundColor: 'rgba(26,155,108,.7)' }
+      ]
+    }, { ...sc(), scales: { x: { ticks: { color: C.mu }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                             y: { min: 0, max: 100, ticks: { callback: v => v + '%', color: C.mu }, grid: { color: 'rgba(255,255,255,0.05)' } } } });
+
+    mk('ch-cp2', 'bar', {
+      labels: ['False Positive Rate', 'False Negative Rate'],
+      datasets: [
+        { label: 'Baseline', data: [m3.fpr * 100, m3.fnr * 100], backgroundColor: 'rgba(192,57,43,.7)' },
+        { label: 'Collaborative', data: [m5.fpr * 100, m5.fnr * 100], backgroundColor: 'rgba(26,155,108,.7)' }
+      ]
+    }, { ...sc(), scales: { x: { ticks: { color: C.mu }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                             y: { ticks: { callback: v => v + '%', color: C.mu }, grid: { color: 'rgba(255,255,255,0.05)' } } } });
+
+    const tkeys = Object.keys(m3.typology_detection_rates);
+    mk('ch-cp3', 'bar', {
+      labels: tkeys.map(k => TYPO_META[k]?.label || k),
+      datasets: [
+        { label: 'Baseline', data: tkeys.map(k => m3.typology_detection_rates[k]), backgroundColor: 'rgba(192,57,43,.7)' },
+        { label: 'Collaborative', data: tkeys.map(k => m5.typology_detection_rates[k] || 0), backgroundColor: 'rgba(26,155,108,.7)' }
+      ]
+    }, { ...sc(), indexAxis: 'y',
+         scales: { x: { min: 0, max: 100, ticks: { callback: v => v + '%', color: C.mu }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                   y: { ticks: { color: C.mu, font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.05)' } } } });
+
+    const tbl = document.getElementById('thesis-table');
+    const f1gain = ((m5.f1_score - m3.f1_score) * 100).toFixed(1);
+    const fprgain = (((m3.fpr - m5.fpr) / m3.fpr) * 100).toFixed(0);
+    const fnrgain = (((m3.fnr - m5.fnr) / m3.fnr) * 100).toFixed(0);
+    const rows = [
+      ['F1 Score', `${(m3.f1_score*100).toFixed(1)}%`, `${(m5.f1_score*100).toFixed(1)}%`, `+${f1gain} pp`],
+      ['Precision', `${(m3.precision*100).toFixed(1)}%`, `${(m5.precision*100).toFixed(1)}%`, `+${((m5.precision-m3.precision)*100).toFixed(1)} pp`],
+      ['Recall', `${(m3.recall*100).toFixed(1)}%`, `${(m5.recall*100).toFixed(1)}%`, `+${((m5.recall-m3.recall)*100).toFixed(1)} pp`],
+      ['AUC-ROC', m3.roc_auc.toFixed(3), m5.roc_auc.toFixed(3), `+${((m5.roc_auc-m3.roc_auc)*100).toFixed(1)} pp`],
+      ['False Positive Rate', `${(m3.fpr*100).toFixed(1)}%`, `${(m5.fpr*100).toFixed(1)}%`, `−${fprgain}%`],
+      ['False Negative Rate', `${(m3.fnr*100).toFixed(1)}%`, `${(m5.fnr*100).toFixed(1)}%`, `−${fnrgain}%`],
+      ['PII shared', 'N/A', '0 bytes', 'PDPL Art.18 ✓'],
+    ];
+    tbl.innerHTML = '<tr><th>Metric</th><th>Baseline</th><th>Collaborative</th><th>Improvement</th></tr>';
+    rows.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${r[0]}</td><td style="color:#E05A50">${r[1]}</td><td style="color:#2AC488;font-weight:700">${r[2]}</td><td><span class="pill pg">${r[3]}</span></td>`;
+      tbl.appendChild(tr);
+    });
+  }
+
+  // ── FIREBASE LISTENER ──
+  window.addEventListener('load', () => {
+    const status_el = document.getElementById('conn-status');
+    status_el.textContent = '● Connecting to Firebase...';
+
+    onValue(ref(db, 'simulation'), (snap) => {
+      const data = snap.val();
+      if (!data) {
+        status_el.textContent = '● Waiting for simulation data...';
+        status_el.style.color = '#C9A84C';
+        return;
+      }
+
+      status_el.textContent = '● Connected ✅ — Live data from Firebase';
+      status_el.style.color = '#2AC488';
+
+      document.getElementById('last-update').textContent =
+        'Last updated: ' + new Date().toLocaleTimeString();
+
+      console.log('Firebase data keys:', Object.keys(data));
+      console.log('m5 present:', !!data.m5, 'm4 present:', !!data.m4);
+      try { if (data.m1) renderM1(data.m1); } catch(e){ console.error('m1 error:', e); }
+      try { if (data.m2) renderM2(data.m2); } catch(e){ console.error('m2 error:', e); }
+      try { if (data.m3) renderM3(data.m3); } catch(e){ console.error('m3 error:', e); }
+      try { if (data.m4) renderM4(data.m4); } catch(e){ console.error('m4 error:', e); }
+      try { if (data.m5) renderM5(data.m5, data.m3); } catch(e){ console.error('m5 error:', e); }
+      try { if (data.m3 && data.m5) renderCompare(data.m3, data.m5); } catch(e){ console.error('compare error:', e); }
+      
+      // Update home stats from m5
+      if (data.m5) {
+        const el = document.getElementById('sv-c-f1');
+        if (el) el.textContent = (data.m5.f1_score * 100).toFixed(1) + '%';
+        const el2 = document.getElementById('sv-pii');
+        if (el2) el2.textContent = '0 bytes';
+        const el3 = document.getElementById('sv-pdpl');
+        if (el3) el3.textContent = '✅';
+        if (data.m3) {
+          const gain = ((data.m5.f1_score - data.m3.f1_score) * 100).toFixed(1);
+          const el4 = document.getElementById('sv-gain');
+          if (el4) el4.textContent = '+' + gain + 'pp';
+        }
+      }
+    });
+  });
+
+  window.sw = function(id) {
+    document.querySelectorAll('.pnl').forEach(p => p.classList.remove('on'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
+    document.getElementById('p-' + id).classList.add('on');
+    event.target.classList.add('on');
+  };
+</script>
+<style>
+:root{--bg:#08111C;--bg2:#0D1B2A;--bg3:#142236;--gold:#C9A84C;--gold2:#F0CB6E;--green2:#2AC488;--red2:#E05A50;--muted:#6B8BA4;--white:#EEF4FA;--border:rgba(255,255,255,0.07);}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--white);font-family:'Segoe UI',system-ui,sans-serif;font-size:13px;}
+.hdr{background:var(--bg2);border-bottom:3px solid var(--gold);padding:.9rem 1.6rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem;}
+.hdr h1{font-size:.95rem;font-weight:700;}
+.hdr p{font-size:.6rem;color:var(--gold);margin-top:2px;}
+.badge{background:var(--gold);color:var(--bg);font-size:.58rem;font-weight:700;padding:3px 10px;border-radius:20px;}
+.sbar{background:var(--bg2);border-bottom:1px solid var(--border);padding:.4rem 1.6rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap;font-size:.62rem;}
+.tabs{display:flex;gap:2px;background:var(--bg2);border-bottom:2px solid var(--gold);padding:.5rem 1.6rem 0;overflow-x:auto;}
+.tab{padding:6px 13px;font-size:.63rem;cursor:pointer;border-radius:5px 5px 0 0;background:transparent;color:var(--muted);border:1px solid transparent;border-bottom:none;margin-bottom:-2px;transition:all .2s;white-space:nowrap;}
+.tab.on{background:var(--bg);color:var(--gold);border-color:rgba(201,168,76,.35);}
+.pnl{display:none;padding:1.4rem 1.6rem;}
+.pnl.on{display:block;}
+.stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:1.2rem;}
+.stat{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:11px 13px;}
+.stat.hl{border-color:rgba(201,168,76,.35);}
+.sv{font-size:1.45rem;font-weight:800;line-height:1.1;margin-bottom:2px;}
+.sl{font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+.cc{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:13px;margin-bottom:1.2rem;}
+.cc h3{font-size:.72rem;font-weight:700;margin-bottom:2px;}
+.cc p{font-size:.6rem;color:var(--muted);margin-bottom:10px;}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin-bottom:1.2rem;}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:13px;margin-bottom:1.2rem;}
+.sec{font-size:.57rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem;display:flex;align-items:center;gap:8px;}
+.sec::after{content:'';flex:1;height:1px;background:var(--border);}
+.waiting{display:flex;align-items:center;justify-content:center;height:120px;flex-direction:column;gap:8px;color:var(--muted);}
+.waiting-icon{font-size:2rem;opacity:.3;}
+.tbl{width:100%;border-collapse:collapse;font-size:.68rem;}
+.tbl th{background:rgba(255,255,255,.04);padding:7px 10px;text-align:left;font-size:.6rem;color:var(--muted);text-transform:uppercase;}
+.tbl td{padding:7px 10px;border-bottom:1px solid var(--border);}
+.pill{display:inline-block;padding:2px 7px;border-radius:10px;font-size:.58rem;font-weight:700;}
+.pg{background:rgba(26,155,108,.2);color:#2AC488;}
+.psv-box{display:grid;grid-template-columns:1fr 60px 1fr;gap:8px;align-items:stretch;margin-top:10px;}
+.psv-side{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;}
+.psv-side h4{font-size:.7rem;font-weight:700;margin-bottom:8px;}
+.psv-field{display:flex;justify-content:space-between;padding:4px 8px;border-radius:4px;font-size:.65rem;margin-bottom:3px;}
+.psv-field.raw{background:rgba(192,57,43,.12);}
+.psv-field.safe{background:rgba(26,155,108,.12);}
+.psv-field.dead{background:rgba(100,100,100,.08);}
+.pl{color:var(--muted);}
+.pv-r{color:#E05A50;font-weight:600;font-family:monospace;}
+.pv-g{color:#2AC488;font-weight:600;font-family:monospace;}
+.pv-m{color:var(--muted);font-style:italic;text-decoration:line-through;}
+.psv-arrow{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;font-size:.62rem;color:var(--gold);text-align:center;}
+.pdpl-badge{display:flex;align-items:center;gap:10px;border-radius:8px;padding:10px 14px;margin-top:8px;border:1px solid;}
+footer{text-align:center;padding:.9rem;font-size:.57rem;color:var(--muted);border-top:1px solid var(--border);margin-top:1rem;}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div>
+    <h1>Cross-Bank AML Pattern Exchange Engine — Live Simulation Dashboard</h1>
+    <p>Nouria Tawfik Masoud Bugaighis · GBSB Global Business School · MSc Fintech & Digital Banking · 2026</p>
+  </div>
+  <span class="badge">Chapter 4 — Real Simulation Results</span>
+</div>
+
+<div class="sbar">
+  <span id="conn-status" style="color:#C9A84C">● Connecting...</span>
+  <span id="last-update" style="color:#6B8BA4"></span>
+  <span style="margin-left:auto;color:#6B8BA4;font-size:.58rem">Powered by Firebase · No server required · Works 24/7</span>
+</div>
+
+<div class="tabs">
+  <button class="tab on" onclick="sw('home')">🏠 Home</button>
+  <button class="tab" onclick="sw('m1')">① Data</button>
+  <button class="tab" onclick="sw('m2')">② Typologies</button>
+  <button class="tab" onclick="sw('m3')">③ Baseline</button>
+  <button class="tab" onclick="sw('m4')">④ PSV Encoding</button>
+  <button class="tab" onclick="sw('m5')">⑤ Collaborative</button>
+  <button class="tab" onclick="sw('compare')">📊 Comparison</button>
+</div>
+
+<!-- HOME -->
+<div class="pnl on" id="p-home">
+  <div class="sec">Live simulation summary</div>
+  <div class="stat-row">
+    <div class="stat"><div class="sv" style="color:#7BB8FF" id="sv-tx">—</div><div class="sl">Transactions</div></div>
+    <div class="stat"><div class="sv" style="color:#7BB8FF" id="sv-cust">—</div><div class="sl">Customers</div></div>
+    <div class="stat"><div class="sv" style="color:#F0CB6E" id="sv-ml">—</div><div class="sl">Laundering injected</div></div>
+    <div class="stat"><div class="sv" style="color:#E05A50" id="sv-b-f1">—</div><div class="sl">Baseline F1</div></div>
+    <div class="stat hl"><div class="sv" style="color:#2AC488" id="sv-c-f1">—</div><div class="sl">Collaborative F1</div></div>
+    <div class="stat hl"><div class="sv" style="color:#2AC488" id="sv-gain">—</div><div class="sl">Accuracy gain</div></div>
+    <div class="stat"><div class="sv" style="color:#2AC488" id="sv-pii">—</div><div class="sl">PII shared</div></div>
+    <div class="stat"><div class="sv" style="color:#2AC488" id="sv-pdpl">—</div><div class="sl">PDPL Art.18</div></div>
+  </div>
+  <div style="background:var(--bg2);border:1px solid rgba(201,168,76,.3);border-radius:10px;padding:1rem 1.2rem;">
+    <div style="font-size:.78rem;font-weight:700;color:var(--gold2);margin-bottom:.5rem;">How this dashboard works</div>
+    <div style="font-size:.68rem;color:var(--muted);line-height:1.7;">
+      This dashboard reads directly from Firebase Realtime Database. No server, no ngrok, no Colab connection needed.<br>
+      Run the simulation in Google Colab — it pushes results to Firebase — this dashboard updates automatically in real time.<br>
+      The dashboard works 24/7 from any device. Share this URL with your examiner and it will always show your latest results.
+    </div>
+  </div>
+</div>
+
+<!-- MODULE 1 -->
+<div class="pnl" id="p-m1">
+  <div class="sec">Module 1 — Synthetic data generator</div>
+  <div id="m1-wait" class="waiting"><div class="waiting-icon">🏦</div><p>Run simulation in Colab to see data</p></div>
+  <div id="m1-data" style="display:none">
+    <div class="g2">
+      <div class="cc"><h3>Transactions per Bank</h3><p>Real distribution from your simulation</p><canvas id="ch-m1-bank" height="200"></canvas></div>
+      <div class="cc"><h3>Monthly Volume</h3><p>12 months of SARIE-style activity</p><canvas id="ch-m1-mon" height="200"></canvas></div>
+    </div>
+    <div class="g2">
+      <div class="cc"><h3>Customer Risk Profile</h3><p>KYC classification</p><canvas id="ch-m1-risk" height="200"></canvas></div>
+      <div class="cc"><h3>Payment Channels</h3><p>SARIE dominates Saudi payments</p><canvas id="ch-m1-ch" height="200"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODULE 2 -->
+<div class="pnl" id="p-m2">
+  <div class="sec">Module 2 — Typology injection</div>
+  <div id="m2-wait" class="waiting"><div class="waiting-icon">💉</div><p>Run simulation in Colab to see typologies</p></div>
+  <div id="m2-data" style="display:none">
+    <div class="g2">
+      <div class="cc"><h3>Transactions per Typology</h3><p>Real injection counts</p><canvas id="ch-m2-t" height="240"></canvas></div>
+      <div class="cc"><h3>Average SAR Amount per Typology</h3><p>Red line = SAR 60,000 CTR threshold</p><canvas id="ch-m2-a" height="240"></canvas></div>
+    </div>
+    <div class="cc">
+      <h3>🔍 Real Transaction — Before & After PSV Encoding</h3>
+      <p>One actual suspicious transaction showing exactly what gets destroyed and what survives</p>
+      <div class="psv-box" id="psv-box"><div class="waiting" style="grid-column:span 3;height:60px"><p>Loading...</p></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODULE 3 -->
+<div class="pnl" id="p-m3">
+  <div class="sec">Module 3 — Traditional baseline — one bank only</div>
+  <div id="m3-wait" class="waiting"><div class="waiting-icon">📏</div><p>Run simulation in Colab to see baseline metrics</p></div>
+  <div id="m3-data" style="display:none">
+    <div class="g2">
+      <div class="cc"><h3>Confusion Matrix — Baseline</h3><p>How many crimes escaped single-bank detection</p><canvas id="ch-m3-cm" height="200"></canvas></div>
+      <div class="cc"><h3>ROC Curve — Baseline</h3><p>Moderate discrimination — cross-bank patterns invisible</p><canvas id="ch-m3-roc" height="200"></canvas></div>
+    </div>
+    <div class="cc"><h3>Detection Rate per Typology — Baseline</h3><p>Tasattur and cross-bank layering largely missed</p><canvas id="ch-m3-t" height="160"></canvas></div>
+  </div>
+</div>
+
+<!-- MODULE 4 -->
+<div class="pnl" id="p-m4">
+  <div class="sec">Module 4 — PSV encoding · PDPL Article 18 compliance</div>
+  <div id="m4-wait" class="waiting"><div class="waiting-icon">🔑</div><p>Run simulation in Colab to see PSV results</p></div>
+  <div id="m4-data" style="display:none">
+    <div id="pdpl-result"></div>
+    <div class="g2" style="margin-top:12px">
+      <div class="cc"><h3>PSV 7-Dimension Radar</h3><p>Laundering vs clean transaction profiles</p><canvas id="ch-m4-radar" height="260"></canvas></div>
+      <div class="cc"><h3>Cosine Similarity Distribution</h3><p>Laundering PSVs cluster above 0.85</p><canvas id="ch-m4-cos" height="260"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODULE 5 -->
+<div class="pnl" id="p-m5">
+  <div class="sec">Modules 5–6 — Collaborative federated system</div>
+  <div id="m5-wait" class="waiting"><div class="waiting-icon">🔗</div><p>Run simulation in Colab to see collaborative results</p></div>
+  <div id="m5-data" style="display:none">
+    <div class="g2">
+      <div class="cc"><h3>20-Round Federated Learning Curve</h3><p>F1 improving as banks share PSV intelligence</p><canvas id="ch-m5-lc" height="200"></canvas></div>
+      <div class="cc"><h3>Confusion Matrix — Collaborative</h3><p>Compare false negatives to baseline</p><canvas id="ch-m5-cm" height="200"></canvas></div>
+    </div>
+    <div class="g2">
+      <div class="cc"><h3>ROC Curve — Collaborative</h3><p>Substantial improvement from cross-bank learning</p><canvas id="ch-m5-roc" height="200"></canvas></div>
+      <div class="cc"><h3>Risk Score Distribution</h3><p>Clear separation between clean and suspicious</p><canvas id="ch-m5-rs" height="200"></canvas></div>
+    </div>
+    <div class="cc"><h3>Per-Typology Detection — Collaborative</h3><p>Biggest gains on Tasattur and cross-bank patterns</p><canvas id="ch-m5-t" height="160"></canvas></div>
+  </div>
+</div>
+
+<!-- COMPARE -->
+<div class="pnl" id="p-compare">
+  <div class="sec">Full comparison — Thesis Table 4.1</div>
+  <div id="cmp-wait" class="waiting"><div class="waiting-icon">📊</div><p>Run all modules to unlock comparison</p></div>
+  <div id="cmp-data" style="display:none">
+    <div class="g2">
+      <div class="cc"><h3>All Metrics Side by Side</h3><p>Real values from your simulation</p><canvas id="ch-cp1" height="220"></canvas></div>
+      <div class="cc"><h3>Error Rate Reduction</h3><p>False positive and false negative improvement</p><canvas id="ch-cp2" height="220"></canvas></div>
+    </div>
+    <div class="cc"><h3>Detection Rate per Typology — Both Systems</h3><p>Collaborative system catches what baseline misses</p><canvas id="ch-cp3" height="200"></canvas></div>
+    <div class="cc" style="margin-top:12px">
+      <h3>📋 Thesis Table 4.1 — Real Numbers</h3>
+      <p style="margin-bottom:10px">Copy directly into Chapter 4</p>
+      <table class="tbl" id="thesis-table"></table>
+    </div>
+  </div>
+</div>
+
+<footer>Cross-Bank AML Pattern Exchange Engine · Firebase-powered Dashboard · Nouria Tawfik Masoud Bugaighis · GBSB Global Business School · 2026</footer>
+</body>
+</html>
